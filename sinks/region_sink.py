@@ -72,11 +72,11 @@ class RegionSink:
 
         self.current_fps_text.write(f"{fps:.1f} FPS")
         
-        # annotated_image = cv2.resize(frame.image, (720, int(720 * (9 / 16))))
+        annotated_image = cv2.resize(frame.image, (720, int(720 * (9 / 16))))
 
         for idx, zone in enumerate(self.zones):
             annotated_image = sv.draw_polygon(
-                scene=frame.image,
+                scene=annotated_image,
                 polygon=zone.polygon,
                 color=self.COLORS.by_idx(idx)
             )
