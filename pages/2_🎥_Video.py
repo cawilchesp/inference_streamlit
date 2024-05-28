@@ -1,7 +1,8 @@
-from ultralytics import YOLO, RTDETR
+from ultralytics import YOLO
 import supervision as sv
 import streamlit as st
 
+import csv
 import sys
 import cv2
 import yaml
@@ -70,36 +71,16 @@ def main():
         time_text = st.markdown('0.00 s')
         current_fps_text = st.markdown('0 FPS')
 
+    col_play, col_stop, col_3 = st.columns([1, 1, 5])
+    with col_play:
+        play_button_pressed = st.button(label='Play')
+    with col_stop:
+        stop_button_pressed = st.button(label='Stop')
+
     ########################################
-    #                Sidebar
+    #            Video Capture
     ########################################
-    st.sidebar.header("Model")
-
-    model_type = st.sidebar.selectbox(
-        "Select Model",
-        config.MODEL_LIST
-    )
-
-    confidence = float(st.sidebar.slider("Select Model Confidence", 0.3, 1.0, 0.5))
-
-    model_path = ""
-    if model_type:
-        model_path = Path(config.DETECTION_MODEL_DIR, config.DETECTION_MODEL_DICT[model_type])
-    else:
-        st.error('Select Model in Sidebar')
-
-    # load pretrained DL model
-    try:
-        model = config.load_model(model_path)
-    except Exception as e:
-        st.error(f"Unable to load model. Please check the specified path: {model_path}")
-
-
-    # if source_video:
-    if source and zone_path and output:
-        
-        stop_button = st.button(label='Stop')
-
+    if play_button_pressed:
         video_source = eval(source) if source.isnumeric() else source
         cap = cv2.VideoCapture(video_source)
         if not cap.isOpened(): quit()
@@ -112,6 +93,19 @@ def main():
         height_text.write(f"{source_info.height} px")
         total_frames_text.write(str(source_info.total_frames))
         fps_text.write(f"{source_info.fps:.2f} FPS")
+
+        csv_writer = CSVSave(file_name=f"{output}.csv")
+        video_writer = cv2.VideoWriter(
+            filename=f"{output}.mp4",
+            fourcc=cv2.VideoWriter_fourcc(*"mp4v"),
+            fps=source_info.fps,
+            # frameSize=(source_info.width, source_info.height),
+            frameSize=(640, int(640 * 9 / 16)),
+        )
+
+        model = YOLO("D:\Data\models\yolov8\yolov8n-pose.pt")
+        tracker = sv.ByteTrack(minimum_matching_threshold=0.7)
+        tracker.reset()
 
         # Annotators
         line_thickness = int(sv.calculate_optimal_line_thickness(resolution_wh=(source_info.width, source_info.height)) * 0.5)
@@ -136,22 +130,16 @@ def main():
             for polygon in polygons
         ]
 
-        csv_writer = CSVSave(file_name=f"{output}.csv")
-        video_writer = cv2.VideoWriter(
-            filename=f"{output}.mp4",
-            fourcc=cv2.VideoWriter_fourcc(*"mp4v"),
-            fps=source_info.fps,
-            frameSize=(720, int(720 * 9 / 16)),
-        )
+        fps_monitor = sv.FPSMonitor()
 
-        tracker = sv.ByteTrack(minimum_matching_threshold=0.7)
-        tracker.reset()
+
+
 
         frame_number = 0
         while cap.isOpened():
             fps_monitor.tick()
             fps_value = fps_monitor.fps
-
+            
             success, image = cap.read()
             if not success: break
 
@@ -159,15 +147,14 @@ def main():
             time_text.write(f"{frame_number / source_info.fps:.2f} s")
             current_fps_text.write(f"{fps_value:.1f} FPS")
 
-            # Resize the image to a standard size
-            annotated_image = cv2.resize(image, (720, int(720 * 9 / 16)))
+            # annotated_image = image.copy()
+            annotated_image = cv2.resize(image, (640, int(640 * 9 / 16)))
 
             results = model(
                 source=annotated_image,
                 imgsz=640,
-                conf=confidence,
+                conf=0.5,
                 device='cuda' if torch.cuda.is_available() else 'cpu',
-                retina_masks=True,
                 verbose=False
             )[0]
             detections = sv.Detections.from_ultralytics(results).with_nms()
@@ -180,7 +167,7 @@ def main():
                     color=COLORS.by_idx(idx)
                 )
 
-                if detections.tracker_id is not None:
+                if np.any(detections.tracker_id):
                     detections_in_zone = detections[zone.trigger(detections)]
                     time_in_zone = timers[idx].tick(detections_in_zone)
                     custom_color_lookup = np.full(detections_in_zone.class_id.shape, idx)
@@ -212,15 +199,12 @@ def main():
                         detections=detections_in_zone,
                         custom_color_lookup=custom_color_lookup
                     )
-
                     custom_data = {
                         'frame_number': frame_number,
                         'time': datetime.now(),
                         'zone': idx
                     }
                     csv_writer.append(detections_in_zone, custom_data)
-            video_writer.write(annotated_image)
-            frame_number += 1
 
             st_frame.image(
                 annotated_image,
@@ -228,15 +212,15 @@ def main():
                 channels="BGR",
                 use_column_width=True
             )
+            video_writer.write(annotated_image)
+            frame_number += 1
 
-            if stop_button:
+            if cv2.waitKey(1) & 0xFF == ord('q') or stop_button_pressed:
                 break
-        sys.exit(0)
-        # tracker.reset()
-        # cap.release()
-        # csv_writer.file.close()
-        # video_writer.release()
 
+        cap.release()
+    sys.exit(0)
+    
 
 if __name__ == '__main__':
     main()
