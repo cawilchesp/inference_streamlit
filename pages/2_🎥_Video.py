@@ -37,19 +37,7 @@ def main():
 
     st.title('Video Detection')
 
-    col_source, col_json, col_output = st.columns([2, 2, 3])
-    with col_source:
-        source = st.text_input(
-            label="Enter video path..."
-        )
-    with col_json:
-        zone_path = st.text_input(
-            label="Enter JSON file path..."
-        )
-    with col_output:
-        output = st.text_input(
-            label="Enter output path..."
-        )
+    data_placeholder = st.empty()
 
     col_image, col_info_1, col_info_2 = st.columns([5, 1, 1])
     with col_image:
@@ -59,23 +47,32 @@ def main():
         st.markdown('**Height**')
         st.markdown('**Total Frames**')
         st.markdown('**Original Frame Rate**')
-        st.markdown('**Frame**')
-        st.markdown('**Time**')
-        st.markdown('**Current Frame Rate**')
+        play_button_pressed = st.button(label='Play')
     with col_info_2:
         width_text = st.markdown('0 px')
         height_text = st.markdown('0 px')
         total_frames_text = st.markdown('0')
         fps_text = st.markdown('0 FPS')
-        frame_text = st.markdown('0')
-        time_text = st.markdown('0.00 s')
-        current_fps_text = st.markdown('0 FPS')
-
-    col_play, col_stop, col_3 = st.columns([1, 1, 5])
-    with col_play:
-        play_button_pressed = st.button(label='Play')
-    with col_stop:
         stop_button_pressed = st.button(label='Stop')
+
+    ########################################
+    #                Sidebar
+    ########################################
+    st.sidebar.header("Source")
+
+    source = st.sidebar.text_input(label="Enter video path...")
+    zone_path = st.sidebar.text_input(label="Enter JSON file path...")
+    output = st.sidebar.text_input(label="Enter output path...")
+
+    st.sidebar.divider()
+    
+    st.sidebar.header("Model")
+
+    weights = st.sidebar.text_input(
+        label="Enter video path...",
+        
+    )
+
 
     ########################################
     #            Video Capture
@@ -100,7 +97,7 @@ def main():
             fourcc=cv2.VideoWriter_fourcc(*"mp4v"),
             fps=source_info.fps,
             # frameSize=(source_info.width, source_info.height),
-            frameSize=(640, int(640 * 9 / 16)),
+            frameSize=(720, int(720 * 9 / 16)),
         )
 
         model = YOLO("D:\Data\models\yolov8\yolov8n-pose.pt")
@@ -132,10 +129,8 @@ def main():
 
         fps_monitor = sv.FPSMonitor()
 
-
-
-
         frame_number = 0
+        prev_fps = 0
         while cap.isOpened():
             fps_monitor.tick()
             fps_value = fps_monitor.fps
@@ -143,12 +138,27 @@ def main():
             success, image = cap.read()
             if not success: break
 
-            frame_text.write(str(frame_number))
-            time_text.write(f"{frame_number / source_info.fps:.2f} s")
-            current_fps_text.write(f"{fps_value:.1f} FPS")
+            with data_placeholder:
+                col_frame, col_time, col_fps = st.columns(3)
+
+                col_frame.metric(
+                    label='Frame',
+                    value=frame_number
+                )
+
+                col_time.metric(
+                    label='Time',
+                    value=f"{frame_number / source_info.fps:.2f} s"
+                )
+
+                col_fps.metric(
+                    label='Current Frame Rate',
+                    value=f"{fps_value:.1f} FPS",
+                    delta=f"{fps_value-prev_fps:.1f} FPS"
+                )
 
             # annotated_image = image.copy()
-            annotated_image = cv2.resize(image, (640, int(640 * 9 / 16)))
+            annotated_image = cv2.resize(image, (720, int(720 * 9 / 16)))
 
             results = model(
                 source=annotated_image,
@@ -213,7 +223,9 @@ def main():
                 use_column_width=True
             )
             video_writer.write(annotated_image)
+            
             frame_number += 1
+            prev_fps = fps_value
 
             if cv2.waitKey(1) & 0xFF == ord('q') or stop_button_pressed:
                 break
